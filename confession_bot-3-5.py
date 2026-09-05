@@ -99,14 +99,14 @@ DEFAULT_CATEGORIES = [
 ]
 
 COMMUNITY_RULES = (
-    "1. No harassment.\n"
-    "2. No threats.\n"
-    "3. No spam.\n"
-    "4. No hate or discrimination.\n"
-    "5. No sharing private information about others.\n"
-    "6. No impersonation.\n"
-    "7. No illegal content.\n"
-    "8. Respect other students."
+    "1. ሮስት ግድ ነው።\n"
+    "2. ማስፈራሪያ አይፈቀድም።\n"
+    "3. አላስፈላጊ መልእክት (ስፓም) አይፈቀድም።\n"
+    "4. ዘረኝነት ወይም መድልዎ አይፈቀድም።\n"
+    "5. የሌሎችን የግል መረጃ ማጋራት አይፈቀድም።\n"
+    "6. የሌላ ሰው ማንነት መስሎ መቅረብ አይፈቀድም።\n"
+    "7. ሕገ ወጥ ይዘት አይፈቀድም።\n"
+    "8. ሌሎች ተማሪዎችን አለማክበር።"
 )
 
 logging.basicConfig(
@@ -431,38 +431,33 @@ def kb_admin_panel() -> InlineKeyboardMarkup:
 # --------------------------------------------------------------------------
 
 WELCOME_TEXT = (
-    f"\U0001f393 <b>Welcome to {esc(UNIVERSITY_NAME)} Confession</b>\n\n"
-    "Your space to speak freely, share your thoughts, and connect with your "
-    "university community.\n\n"
-    "\u2022 Send a confession privately and it goes to our moderation team.\n"
-    "\u2022 Your identity is <b>anonymous to other students</b> — administrators "
-    "can see your Telegram identity for moderation and safety purposes only.\n"
-    "\u2022 Approved confessions are posted to the channel with comments enabled.\n"
-    "\u2022 Abuse, spam, and harassment are not allowed — see /rules.\n\n"
-    "Pick an option below to get started."
+    f"\U0001f393 <b>ወደ {esc(UNIVERSITY_NAME)}  እንኳን ወደ ThoughtDrop በደህና መጡ!</b>\n\n"
+    "ይህ በነጻነት የምትናገሩበት፣ ሃሳባችሁን የምታካፍሉበት እና ከዩኒቨርሲቲ ማህበረሰባችሁ ጋር "
+    "የምትገናኙበት ቦታ  ነው።\n\n"
+    "\u2022 ሃሳቦን በግል ይላኩ እና ወደ admin ይደርሳል።\n"
+    "\u2022 ማንነትዎ ለሌሎች ተማሪዎች <b>ስውር ሆኖ ይቆያል</b> — በተመሳሳይ መልኩ ለadminንም"
+    "\n"
+    "\u2022 አስተያየት ቻናሉ ላይ ይለጠፋሉ።\n"
+    "\u2022 ትንኮሳ፣ አላስፈላጊ መልእክት እና ዘረኝነት አይፈቀዱም — /rules ይመልከቱ።\n\n"
+    "ለመጀመር ከታች ካሉት አማራጮች ውስጥ አንዱን ይምረጡ።"
 )
 
 PRIVACY_TEXT = (
-    "\U0001f512 <b>Privacy</b>\n\n"
-    "\u2022 Confessions are anonymous to other students.\n"
-    "\u2022 Administrators can identify the sender of a confession for moderation "
-    "and safety.\n"
-    "\u2022 Comments are shown under the public profile name you choose.\n"
-    "\u2022 Telegram may expose limited account info to the bot per Telegram's own "
-    "platform rules — we only store what's needed to run the community "
-    "features (profile, aura, notifications, moderation).\n"
-    "\u2022 Never send passwords, financial details, or other highly sensitive "
-    "personal information through the bot."
+    "\U0001f512 <b>ግላዊነት</b>\n\n"
+    "\u2022  ማንነቶ ለሁሉም ስውር ነው።\n"
+    "\u2022 ማስታወቂያ ይኖራል! "
+    "\n"
+    "\u2022 አስተያየቶች(ቾምመንትስ) እርስዎ በመረጡት  ስም(ኡሰርናመ) ስር ይታያሉ።\n"
+    
 )
 
 HELP_TEXT = (
-    "\u2753 <b>Help</b>\n\n"
-    "\U0001f464 <b>My Profile</b> — set up how you appear on comments.\n"
-    "\U0001f4dd <b>Confess</b> — submit an anonymous confession for review.\n"
-    "\u2b50 <b>My Aura</b> — see your community reputation points.\n"
-    "\U0001f4dc <b>Rules</b> / \U0001f512 <b>Privacy</b> — how the community works.\n\n"
-    "Once a confession is approved it's posted to the channel, where the "
-    "\U0001f4ac Comment button opens the discussion here in this private chat."
+    "\u2753 <b>እገዛ</b>\n\n"
+    "\U0001f464 <b>የኔ መገለጫ</b> — በአስተያየቶች(comments) ውስጥ እንዴት እንደሚታዩ ያዘጋጁ።\n"
+    "\u2b50 <b>የኔ አውራ</b> — የማህበረሰብ ዝና ነጥብዎን ይመልከቱ።\n"
+    "\U0001f4dc <b>ደንቦች</b> / \U0001f512 <b>ግላዊነት</b> — ማህበረሰቡ እንዴት እንደሚሰራ።\n\n"
+    "አንድ መልክት(confession) ከተፈቀደ በኋላ ወደ ቻናሉ ይለጠፋል፣ በዚያም \U0001f4ac አስተያየት(comments) "
+    "የሚለው ቁልፍ ውይይቱን(comment) በዚህ የግል ቻት ውስጥ ይከፍታል።"
 )
 
 
@@ -492,13 +487,14 @@ def confession_channel_text(conf: sqlite3.Row, cat: sqlite3.Row, comment_count: 
     )
 
 
-def admin_review_text(conf: sqlite3.Row, cat: sqlite3.Row, user: sqlite3.Row) -> str:
+def admin_review_text(conf: sqlite3.Row, cat: Optional[sqlite3.Row], user: sqlite3.Row) -> str:
     uname = f"@{user['username']}" if user["username"] else "(no username)"
     body = esc(conf["content"]) if conf["content"] else "(media attached)"
+    cat_label = f"{cat['emoji']} {esc(cat['name'])}" if cat else "(uncategorized)"
     return (
         "<b>CONFESSION REVIEW</b>\n\n"
         f"ID: #{conf['id']:06d}\n"
-        f"Category: {cat['emoji']} {esc(cat['name'])}\n\n"
+        f"Category: {cat_label}\n\n"
         f"User: {esc(uname)}\n"
         f"User ID: {user['telegram_id']}\n\n"
         f"Confession:\n{body}"
@@ -1252,11 +1248,14 @@ async def on_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             conf_id = conn.execute("SELECT last_insert_rowid() id").fetchone()["id"]
         context.user_data.clear()
 
-        await message.reply_text(
-            f"\u2705 Your confession has been submitted for review (ref #{conf_id:06d}).\n"
-            "Please wait for administrator approval. Your identity will not be displayed publicly.",
-            reply_markup=kb_main_menu(tg_user.id),
-        )
+        try:
+            await message.reply_text(
+                f"\u2705 Your confession has been submitted for review (ref #{conf_id:06d}).\n"
+                "Please wait for administrator approval. Your identity will not be displayed publicly.",
+                reply_markup=kb_main_menu(tg_user.id),
+            )
+        except Exception:
+            log.exception("Failed to send confirmation for confession #%s", conf_id)
         await vanish(message)
 
         conf = get_confession(conf_id)
@@ -1277,6 +1276,8 @@ async def on_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 )
             except Forbidden:
                 log.warning("Admin %s has not started the bot; cannot deliver review.", admin_id)
+            except Exception:
+                log.exception("Failed to deliver confession #%s to admin %s", conf_id, admin_id)
         return
 
     # ---- comment / reply submission ----
