@@ -10,9 +10,12 @@ for the few places where the spec asked for something the Bot API cannot
 literally do, and what was built instead.
 
 Run:
-    pip install python-telegram-bot==21.4 python-dotenv
-    cp .env.example .env   # fill in BOT_TOKEN / ADMIN_IDS / CHANNEL_ID
+    pip install python-telegram-bot==21.4 python-dotenv psycopg2-binary
+    cp .env.example .env   # fill in BOT_TOKEN / ADMIN_IDS / CHANNEL_ID / DATABASE_URL
     python confession_bot.py
+
+Data is stored in Postgres (e.g. Supabase or Neon's free tier), connected
+via the DATABASE_URL environment variable, so it survives host restarts.
 
 TELEGRAM LIMITATIONS handled here:
   * A channel post cannot open a "conversation" for a comment box — buttons
@@ -43,6 +46,9 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Optional
 
+import psycopg2
+import psycopg2.extras
+
 from dotenv import load_dotenv
 from telegram import (
     InlineKeyboardButton,
@@ -71,8 +77,8 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if x}
 CHANNEL_ID = os.getenv("CHANNEL_ID", "")  # e.g. -1001234567890 or @channelusername
-DATABASE_PATH = os.getenv("DATABASE_PATH", "confession_bot.db")
-UNIVERSITY_NAME = os.getenv("UNIVERSITY_NAME", "Our University")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+UNIVERSITY_NAME = os.getenv("UNIVERSITY_NAME", "ThoughtDrop")
 
 MAX_CONFESSION_LEN = int(os.getenv("MAX_CONFESSION_LEN", "1500"))
 MAX_COMMENT_LEN = int(os.getenv("MAX_COMMENT_LEN", "500"))
@@ -92,17 +98,17 @@ DEFAULT_CATEGORIES = [
     ("Education", "\U0001f4da"),
     ("Friendship", "\U0001f9d1\u200d\U0001f91d\u200d\U0001f9d1"),
     ("Personal", "\U0001f614"),
-    ("Sex", "\U0001f4ad"),
+    ("Thoughts", "\U0001f4ad"),
     ("Hot Topic", "\U0001f525"),
     ("Question", "\u2753"),
-    ("Other", "\U0001f4dd"),
+    ("sex", "\U0001f4dd"),
 ]
 
 COMMUNITY_RULES = (
-    "1. ሮስት ግድ ነው።\n"
+    "1. ትንኮሳ አይፈቀድም።\n"
     "2. ማስፈራሪያ አይፈቀድም።\n"
     "3. አላስፈላጊ መልእክት (spam) አይፈቀድም።\n"
-    "4. ዘረኝነት ወይም መድልዎ አይፈቀድም።\n"
+    "4. ጥላቻ ወይም መድልዎ አይፈቀድም።\n"
     "5. የሌሎችን የግል መረጃ ማጋራት አይፈቀድም።\n"
     "6. የሌላ ሰው ማንነት መስሎ መቅረብ አይፈቀድም።\n"
     "7. ሕገ ወጥ ይዘት አይፈቀድም።\n"
@@ -122,8 +128,8 @@ log = logging.getLogger("confession_bot")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    telegram_id INTEGER UNIQUE NOT NULL,
+    id SERIAL PRIMARY KEY,
+    telegram_id BIGINT UNIQUE NOT NULL,
     username TEXT,
     profile_name TEXT,
     sex TEXT,
@@ -136,28 +142,28 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS categories (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     emoji TEXT NOT NULL,
     active INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS confessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id),
     category_id INTEGER REFERENCES categories(id),
     content TEXT,
     media_type TEXT,
     media_id TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
-    channel_message_id INTEGER,
-    admin_message_id INTEGER,
+    channel_message_id BIGINT,
+    admin_message_id BIGINT,
     created_at TEXT NOT NULL,
     approved_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS comments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     confession_id INTEGER NOT NULL REFERENCES confessions(id),
     user_id INTEGER NOT NULL REFERENCES users(id),
     parent_comment_id INTEGER REFERENCES comments(id),
@@ -171,7 +177,7 @@ CREATE TABLE IF NOT EXISTS comments (
 );
 
 CREATE TABLE IF NOT EXISTS reactions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     comment_id INTEGER NOT NULL REFERENCES comments(id),
     user_id INTEGER NOT NULL REFERENCES users(id),
     reaction_type TEXT NOT NULL,
@@ -179,7 +185,7 @@ CREATE TABLE IF NOT EXISTS reactions (
 );
 
 CREATE TABLE IF NOT EXISTS reports (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     reporter_id INTEGER NOT NULL,
     content_type TEXT NOT NULL,
     content_id INTEGER NOT NULL,
@@ -195,11 +201,43 @@ CREATE INDEX IF NOT EXISTS idx_reactions_comment_user ON reactions(comment_id, u
 """
 
 
+class _PGConn:
+    """Thin wrapper so the rest of the file can keep using sqlite-style
+    conn.execute("...?...", (...)) calls unchanged, against Postgres."""
+
+    def __init__(self, raw_conn):
+        self._conn = raw_conn
+
+    def execute(self, sql: str, params=None):
+        sql = sql.replace("?", "%s")
+        cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        if params:
+            cur.execute(sql, params)
+        else:
+            cur.execute(sql)
+        return cur
+
+    def executemany(self, sql: str, seq_of_params):
+        sql = sql.replace("?", "%s")
+        cur = self._conn.cursor()
+        cur.executemany(sql, seq_of_params)
+        return cur
+
+    def executescript(self, script: str) -> None:
+        cur = self._conn.cursor()
+        cur.execute(script)
+        cur.close()
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def close(self) -> None:
+        self._conn.close()
+
+
 def db():
-    conn = sqlite3.connect(DATABASE_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    raw = psycopg2.connect(DATABASE_URL)
+    return _PGConn(raw)
 
 
 def init_db() -> None:
@@ -213,7 +251,7 @@ def init_db() -> None:
                 DEFAULT_CATEGORIES,
             )
             conn.commit()
-    log.info("Database ready at %s", DATABASE_PATH)
+    log.info("Database ready (Postgres)")
 
 
 def now() -> str:
@@ -431,34 +469,33 @@ def kb_admin_panel() -> InlineKeyboardMarkup:
 # --------------------------------------------------------------------------
 
 WELCOME_TEXT = (
-    f"\U0001f393 <b>እንኳን ወደ {esc(ThoughtDrop)}በደህና መጡ!</b>\n\n"
-    "ይህ በነጻነት የምትናገሩበት፣ ሃሳባችሁን የምታካፍሉበት እና ከማህበረሰባችሁ ጋር "
-    "የምትገናኙበት ቦታ ነው።\n"
-    "\u2022 ሃሳቦን በግል ይላኩ እና ወደ admin ይደርሳል።\n"
-    "\u2022 ማንነትዎ ለሌሎች ተማሪዎች <b>ስውር ሆኖ ይቆያል</b> በተመሳሳይ መልኩ ለadminንም\n"
-    "\u2022 አስተያየትዎ ቻናሉ ላይ ይለጠፋሉ።\n"
-    "\u2022 ትንኮሳ፣ አላስፈላጊ መልእክት እና ዘረኝነት አይፈቀዱም  /rules ይመልከቱ።\n"
+    f"\U0001f393 <b>እንኳን ወደ {esc(UNIVERSITY_NAME)}በደህና መጡ</b>\n\n"
+    "ይህ በነጻነት የምትናገሩበት፣ ሃሳባችሁን የምታካፍሉበት እና ማህበረሰባችሁ ጋር "
+    "የምትገናኙበት ቦታ ነው።\n\n"
+    "\u2022 ሃሳቦን በግል ይላኩ እና ወደ admin ቡድናችን ይደርሳል።\n"
+    "\u2022 ማንነትዎ ለሌሎች ተማሪዎች ሆነ ለ Admin <b>ስውር ሆኖ ይቆያል</b>\n"
+    "\u2022 Approved Thoughts አስተያየት ምስጫ ጋር ወደ ቻናሉ ይለጠፋሉ።\n"
+    "\u2022 ትንኮሳ፣ አላስፈላጊ መልእክት አይፈቀዱም  /rules ይመልከቱ።\n\n"
     "ለመጀመር ከታች ካሉት አማራጮች ውስጥ አንዱን ይምረጡ።"
 )
 
 PRIVACY_TEXT = (
-    "\U0001f512 <b>Privacy</b>\n\n"
-    "\u2022  ማንነቶ ለሁሉም ስውር ነው።\n"
-    "\u2022 ማስታወቂያ ይኖራል! "
-    "\n"
-    "\u2022  አስተያየቶች(Comments) እርስዎ በመረጡት ስም(Username) ስር ይታያሉ።\n"
-    
+    "\U0001f512 <b>PRIVACY</b>\n\n"
+    "\u2022 መጀመሪያ የርሶ Thoughts ለሌሎች ተማሪዎች ስውር ናቸው።\n"
+    "\u2022 Adminኦች ለቁጥጥር ሲባል Thoughtኦችን መጀመሪያ የሚያዩ ይሆናል\n"
+    "\u2022 አስተያየቶች(comments) እርስዎ በመረጡት የህዝብ መገለጫ ስም(profil name) ስር ይታያሉ።\n"
+    "\u2022 የይለፍ ቃል፣ የገንዘብ ዝርዝር ወይም ሌላ በጣም ሚስጥራዊ የግል መረጃ "
+    "በቦቱ በኩል በጭራሽ አይላኩ።"
 )
 
 HELP_TEXT = (
     "\u2753 <b>HELP</b>\n\n"
-    "\U0001f464 <b>My Profile</b> — በአስተያየቶች(comments) ውስጥ እንዴት እንደሚታዩ ያዘጋጁ።\n"
-    "\n"
-    "\u2b50 <b>My Aura</b> — የማህበረሰብ ዝና/Aura ነጥብዎን ይመልከቱ።\n"
-    "\n"
-    "\U0001f4dc <b>Rule</b> / \U0001f512 <b>ግላዊነት</b> — ማህበረሰቡ እንዴት እንደሚሰራ።\n\n"
-    "አንድ መልክት(your thought) ከተፈቀደ በኋላ ወደ ቻናሉ ይለጠፋል፣ በዚያም \U0001f4ac አስተያየት(comment) "
-    "የሚለው ቁልፍ አስታየቶችን(comment) በዚህ የግል ቻት ውስጥ ይከፍታል።"
+    "\U0001f464 <b>Profile</b> — በአስተያየቶች ውስጥ እንዴት እንደሚታዩ ያዘጋጁ።\n"
+    "\U0001f4dd <b>Thoughts</b> — ለምርመራ በስውር ያስገቡ።\n"
+    "\u2b50 <b>Aura point</b> — የAura ነጥብዎን ይመልከቱ።\n"
+    "\U0001f4dc <b>Rules</b> / \U0001f512 <b>privacy</b> — ማህበረሰቡ እንዴት እንደሚተዳደር።\n\n"
+    "አንድ Thought ከተፈቀደ በኋላ ወደ ቻናሉ ይለጠፋል፣ በዚያም \U0001f4ac አስተያየት "
+    "የሚለው ቁልፍ ውይይቱን በዚህ የግል ቻት ውስጥ ይከፍታል።"
 )
 
 
@@ -919,7 +956,7 @@ async def route_report(q, context, user, parts) -> None:
             (user["id"], content_type, content_id, "Reported via bot", now()),
         )
         conn.commit()
-        report_id = conn.execute("SELECT last_insert_rowid() id").fetchone()["id"]
+        report_id = conn.execute("SELECT lastval() id").fetchone()["id"]
 
     await q.answer("Thanks — our team will review this.", show_alert=True)
 
@@ -1246,7 +1283,7 @@ async def on_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 (user["id"], cat_id, text, media_type, media_id, now()),
             )
             conn.commit()
-            conf_id = conn.execute("SELECT last_insert_rowid() id").fetchone()["id"]
+            conf_id = conn.execute("SELECT lastval() id").fetchone()["id"]
         context.user_data.clear()
 
         try:
@@ -1295,7 +1332,7 @@ async def on_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 (conf_id, user["id"], parent_id, text, media_type, media_id, now()),
             )
             conn.commit()
-            new_id = conn.execute("SELECT last_insert_rowid() id").fetchone()["id"]
+            new_id = conn.execute("SELECT lastval() id").fetchone()["id"]
 
         add_aura(user["id"], AURA_PER_COMMENT)
         context.user_data.clear()
@@ -1401,6 +1438,8 @@ def build_app() -> Application:
 
 
 def main() -> None:
+    if not DATABASE_URL:
+        raise SystemExit("DATABASE_URL is not set. Copy .env.example to .env and fill it in.")
     init_db()
     app = build_app()
     webhook_url = os.getenv("WEBHOOK_URL", "") or os.getenv("RENDER_EXTERNAL_URL", "")
